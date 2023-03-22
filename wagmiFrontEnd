@@ -1,10 +1,12 @@
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { Button, Col, Menu, Row, List, InputNumber, Select } from "antd";
 import {
   useAccount,
   useContractRead,
   useContractWrite,
   usePrepareContractWrite,
   useWaitForTransaction,
+  useContractEvent,
 } from "wagmi";
 import { ethers } from "ethers";
 import { useState, useEffect } from "react";
@@ -20,8 +22,15 @@ export default function Home() {
 
   const [supplyData, setSupplyData] = useState(0);
   const [ownerTokens2, setOwnerTokens] = useState(0);
-  const [nftTokens2, setNftTokens] = useState(0);
+  const [tokenURI, setNftTokens] = useState(0);   // the id of the NFT eg 5674, 23, 6013
   const [lendBalance2, setLendBalance] = useState(0);
+  const {address} = useAccount();
+  const [yourCollectibles2, setYourCollectibles2] = useState(0);
+  const [ownerID, setOwnerID] = useState(0);      // array position of the NFT when looping through owner's nfts
+  const [NFTid, setNFTid] = useState("0");
+  const [loanAmount, setLoanAmount] = useState(.28);   
+  const [loanDays, setNFTDays] = useState(1);  // length of loan in days 
+  let maxLoanBerries = 0.286 ;
 
   const contractConfig = {
     address: BLUE_ADDRESS,
@@ -40,7 +49,7 @@ export default function Home() {
    * The information is "Prepared" before you push the button for execution
    */
    const { config: paybableMinter, error: mintError } = usePrepareContractWrite({
-    address: CONTRACT_ADDRESS,
+    address: FLOOR_LENDING,
     abi: tokenContract.abi,
     functionName: "mint",
     args: [],
@@ -62,7 +71,15 @@ export default function Home() {
   } = useContractWrite(paybableMinter);
 
   /* *************************************************************************** */
-
+  useContractEvent({
+    address: FLOOR_LENDING,
+    abi: floorContract,
+    eventName: 'loanEvent',
+    listener(sender, NFTid, collectionID,loanAmount,dueDate) {
+      console.log(sender, NFTid, collectionID,loanAmount,dueDate)
+      alert (sender)
+    },
+  })
 
 
   /***************************************************************************** */
@@ -75,8 +92,8 @@ export default function Home() {
     ...contractConfig,
     // address: CONTRACT_ADDRESS,
     // abi: tokenContract.abi,
-    functionName: "adminMint",
-    args: ["0xe2b8651bF50913057fF47FC4f02A8e12146083B8"], //hardcoded address can create a state variable
+    functionName: "approve",
+    args: ["0x5A4Eb044cb859B154531D7b0c7bdc89fE77AA86E", ], //hardcoded address can create a state variable
     onError(error) {
       console.log("Error in admin mint", error);
     },
@@ -94,7 +111,6 @@ export default function Home() {
   /* *************************************************************************** */
 
 
-
   /***************************************************************************** */
   // Read Function
   /** @dev Read the total supply of the token
@@ -110,13 +126,13 @@ export default function Home() {
   const { data: ownerTokens, error: ownerError } = useContractRead({
     ...contractConfig,
     functionName: "balanceOf",
-    args: ["0x2a21Cc5D8Bcaa0D10078C99606B03Ee46C58817d"], //hardcoded address can create a state variable
+    args: [address], //hardcoded address can create a state variable
   });
 
   const { data: nftTokens, error: getNFTError } = useContractRead({
     ...contractConfig,
     functionName: "tokenOfOwnerByIndex",
-    args: ["0x2a21Cc5D8Bcaa0D10078C99606B03Ee46C58817d",0], //hardcoded address can create a state variable
+    args: [address,ownerID], //hardcoded address can create a state variable
   });
 
   const { data: lendBalance, error: getLendBalanceError } = useContractRead({
@@ -154,20 +170,83 @@ export default function Home() {
     }
   }, [lendBalance]);
 
-  /* console.log data to view variables */
-  // useEffect(() => {
-  //   console.log("mintData:", mintAdminData);
-  //   console.log("isMintLoading:", isMintLoading);
-  //   console.log("totalSupplyData:", totalSupplyData.toString());
-  //   console.log("___________");
-  // }, [mintAdminData, isMintLoading, totalSupplyData]);
+  // displays NFTs that are minted
+  const updateYourCollectibles2 = async () => {
+    const collectibleUpdate = [];
+    for (let i=0; i < 2; i++) {
+ try{
+      setOwnerID(i)
+      nftTokens
+      alert(i + " " +tokenURI)
+     let addr = "https://ipfs.io/ipfs/QmSg4CMhmWdQ17i7pNbd8ENhW3B4Vb1kvMK3pgj7tryaNv/" + tokenURI + ".jpg";
+     collectibleUpdate.push({ id: tokenURI, image: addr, owner: address});
+      }
+      catch(e) {alert (e, "NFT Error")}
+    } 
+    setYourCollectibles2(collectibleUpdate);
+  };
+
+  const handleClick = async (event, message) => {
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+    const marketContract = new ethers.Contract("0x17f4BAa9D35Ee54fFbCb2608e20786473c7aa49f", blueContract, provider);
+    const marketWithSigner = marketContract.connect(signer); 
+    try{  
+      await marketWithSigner.approve(FLOOR_LENDING, message);
+    }catch(e) {alert (e, "approve error"); console.log(e);}
+  };
+  
+  let a =0
+     // input number handler for NFT ID
+     const changeDuration = value => {
+      try{
+       setNFTDays(value);
+       a = (maxLoanBerries -(value * .005)).toFixed(2)
+       console.log("a  = fixed 1 " , a)       
+       setLoanAmount(a);
+      } catch (e) {console.log(e);} 
+   };
+
+     // input number handler for NFT ID
+  const changeLoan = value => {
+    setLoanAmount(value);
+  };
+
+  const floorLendAbi = [
+    "function lend( uint256 tokenId , uint256 loanLength ,uint256 collectionID,uint256  _loanAmount )",    
+  ];
+
+  const lend = async (event, nftNumber) =>{ 
+    alert("nftNumber " + nftNumber + " loanAmount " + ethers.utils.parseEther(loanAmount + "") + " loanDays " + loanDays  )
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+    const marketContract = new ethers.Contract(FLOOR_LENDING, floorLendAbi, provider);
+    const marketWithSigner = marketContract.connect(signer); 
+    try{  
+      await marketWithSigner.lend(nftNumber, loanDays, 0 ,ethers.utils.parseEther(loanAmount + ""));
+    }catch(e) {alert (e, "Lend error"); console.log(e);}setLoanAmount
+   }
+
+   const getLoans= async ( ) => {
+    let tokenURI = ""
+    let str = ""
+    let balance2 = await readContracts.FloorLendingV2.getMappingLength(address, 0);
+    alert ( balance2)  
+    for (let i = 0; i < balance2; i++)
+     { tokenURI = await readContracts.FloorLendingV2.getLoanID(address, 0, i );
+       let due = await readContracts.FloorLendingV2.getDueDate(tokenURI, 0);
+        str=str.concat('NFT id : ', tokenURI , ' Due :' ,getDate(due) )
+    }
+    setDisplayLoans(str)
+  };
+
 
   return (
     <div className="container flex flex-col  items-center mt-10">
       <div className="flex mb-6">
-        <ConnectButton showBalance={false} />
+        <ConnectButton showBalance={true} />
       </div>
-      <h3 className="text-5xl font-bold mb-20">{"D_D's token drop"}</h3>
+      <h3 className="text-5xl font-bold mb-20">{"FLOOR 101 NFT LEnding"}</h3>
 
       <div className="flex flex-col space-y-5">
         <button
@@ -185,7 +264,7 @@ export default function Home() {
         >
           Admin Tokens
         </button>
-
+Account {address}
         <div className="text-center mt-5">
           <h3 className="text-lg ">Total minted</h3>
           <h3 className="text-lg">{supplyData.toString()}</h3>
@@ -193,16 +272,29 @@ export default function Home() {
 
 <div className="text-center mt-5">
  <h3 className="text-lg ">You own {ownerTokens2.toString()} Blueberry NFT</h3>
- NFT ID {nftTokens2.toString()}
+ NFT ID {tokenURI.toString()}
 </div>
-Lending Contract has { ethers.utils.formatEther(lendBalance2.toString()).substring(0,4)    } ETH available
+Lending Contract has { ethers.utils.formatEther(lendBalance2.toString()).substring(0,6)    } ETH available
 
-<button onClick={() => tokenOfOwnerByIndex?.()}
+<button onClick={() => updateYourCollectibles2?.()}
  className="bg-gray-900 text-white hover:bg-gray-800 rounded-full px-12 py-2 sm:w-auto" >
 GET NFTS
 </button>
+If you know the ID of your NFT, just enter it below , otherwise click on the Display Eligible Blueberries below.
+ <table padding = {25}>
+<tr><td>Nft ID : </td><td><InputNumber min={1} max={10000} defaultValue={1} onChange={setNFTid} style={{ width: 200 }} /></td></tr>
+<tr><td>Loan Duration : </td><td>
+ <InputNumber min={1} max={28} placeholder={"Loan Duration"} defaultValue={1} onChange={changeDuration} style={{ width: 200 }} />
+ </td></tr>
+ <tr><td>Loan Amount : </td><td>
+ <InputNumber min={.1} max={maxLoanBerries} step={0.01} value={loanAmount} onChange={changeLoan} style={{ width: 200 }} />
+ </td></tr></table>
 
+<button  className="bg-gray-900 text-white hover:bg-gray-800 rounded-full px-12 py-2 sm:w-auto" onClick={(event) => handleClick(event, tokenURI)}  style={{ marginTop: 10 }}>Approve</button>{" "}
+<Button type="primary" shape="round" onClick={(event) => lend(event, NFTid)} style={{ marginTop: 10 }}>LEND</Button><br />
 
+<h1>Repay Loan</h1>
+<Button type="primary" shape="round" onClick={() =>{getLoans()}} style={{ marginTop: 10 }} >Display Loans</Button>{' '}
       </div>
     </div>
   );
